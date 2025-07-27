@@ -1,0 +1,123 @@
+name: Publish XSD Files to GitHub Pages
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history to get tags
+
+      - name: Set up Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Create directory structure and copy XSD files
+        run: |
+          # Create docs directory if it doesn't exist
+          mkdir -p docs
+          
+          # Get tags matching semantic versioning (vX.Y.Z)
+          git fetch --tags
+          tags=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          
+          # Save current branch to return to it later
+          current_branch=$(git rev-parse --abbrev-ref HEAD)
+          
+          # Loop through each tag and copy files from that tag
+          for tag in $tags; do
+            echo "Processing tag: $tag"
+            git checkout $tag
+            
+            # Create directories for this tag
+            mkdir -p "docs/$tag/common"
+            mkdir -p "docs/$tag/cross-country"
+            
+            # Copy XSD files from common and cross-country as they were at this tag
+            if [ -d "common" ]; then
+              cp common/*.xsd "docs/$tag/common/" 2>/dev/null || true
+            fi
+            if [ -d "cross-country" ]; then
+              cp cross-country/*.xsd "docs/$tag/cross-country/" 2>/dev/null || true
+            fi
+          done
+          
+          # Return to the original branch
+          git checkout $current_branch
+
+      - name: Generate homepage
+        run: |
+          # Get tags matching semantic versioning (vX.Y.Z)
+          git fetch --tags
+          tags=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          echo '<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>OpenRally XSD Files</title>
+            <style>
+              body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+              h1 { text-align: center; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #f2f2f2; }
+              a { color: #0066cc; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+            </style>
+          </head>
+          <body>
+            <h1>OpenRally XSD Files</h1>
+            <p>Welcome to the OpenRally XSD file repository. Below are the XSD files for each version, organized by tag.</p>
+            <table>
+              <tr>
+                <th>Version</th>
+                <th>Common XSD Files</th>
+                <th>Cross-Country XSD Files</th>
+              </tr>' > docs/index.html
+          
+          for tag in $tags; do
+            echo "  <tr>" >> docs/index.html
+            echo "    <td>$tag</td>" >> docs/index.html
+            echo "    <td>" >> docs/index.html
+            if [ -d "docs/$tag/common" ]; then
+              for file in docs/$tag/common/*.xsd; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  echo "      <a href=\"$tag/common/$filename\">$filename</a><br>" >> docs/index.html
+                fi
+              done
+            fi
+            echo "    </td>" >> docs/index.html
+            echo "    <td>" >> docs/index.html
+            if [ -d "docs/$tag/cross-country" ]; then
+              for file in docs/$tag/cross-country/*.xsd; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  echo "      <a href=\"$tag/cross-country/$filename\">$filename</a><br>" >> docs/index.html
+                fi
+              done
+            fi
+            echo "    </td>" >> docs/index.html
+            echo "  </tr>" >> docs/index.html
+          done
+          
+          echo '</table>
+          </body>
+          </html>' >> docs/index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          publish_branch: gh-pages
+          force_orphan: true
